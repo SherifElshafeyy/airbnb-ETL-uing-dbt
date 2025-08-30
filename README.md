@@ -25,22 +25,22 @@ A complete, production-style dbt project that transforms raw Airbnb data in Snow
 
 ## Architecture & Flow
 
-*Source (Snowflake RAW schema) → Staging (src models) → Dimensions (dim) → Facts (fct) → Marts*
+**Source (Snowflake RAW schema) → Staging (src models) → Dimensions (dim) → Facts (fct) → Marts**
 
 We also use snapshots to track source changes over time and seeds to enrich data (e.g., full moon dates).
 
-*High-level lineage:*
+**High-level lineage:**
 
-
+```
 AIRBNB.RAW.RAW_LISTINGS ┐
 AIRBNB.RAW.RAW_HOSTS     ├─> src models ─> dim_* ─┐
 AIRBNB.RAW.RAW_REVIEWS  ┘                          ├─> fct_reviews ─> marts
 Seed: full_moon_dates  ────────────────────────────┘
-
+```
 
 ## Project Structure
 
-
+```
 .
 ├─ models/
 │  ├─ src/                          # Staging models (from sources)
@@ -75,13 +75,13 @@ Seed: full_moon_dates  ───────────────────
 ├─ packages.yml
 ├─ dbt_project.yml
 └─ README.md
-
+```
 
 ## Environment Setup (dbt Core)
 
 Create a Python virtual environment and install dbt for Snowflake.
 
-bash
+```bash
 
 # on Windows PowerShell
  python -m venv .venv
@@ -90,13 +90,13 @@ bash
 # install dbt core + snowflake adapter
 pip install --upgrade pip
 pip install dbt-core dbt-snowflake
-
+```
 
 ## Snowflake Profile
 
-dbt Core reads connection settings from  %USERPROFILE%\.dbt\profiles.yml (Windows).
+dbt Core reads connection settings from  `%USERPROFILE%\.dbt\profiles.yml` (Windows).
 
-yaml
+```yaml
 # ~/.dbt/profiles.yml
 dbtlearn:                   # must match `profile:` in dbt_project.yml
   target: dev
@@ -111,34 +111,34 @@ dbtlearn:                   # must match `profile:` in dbt_project.yml
       warehouse: "your-warehouse"
       schema: "DEV"
       threads: 4
+```
 
-
-> ⚠ *Important:* Replace placeholder values with your actual Snowflake credentials.
+> ⚠️ **Important:** Replace placeholder values with your actual Snowflake credentials.
 
 ## Packages
 
-*packages.yml*
+**packages.yml**
 
-yaml
+```yaml
 packages:
   - package: dbt-labs/dbt_utils
     version: 1.3.0
 
   - package: metaplane/dbt_expectations
     version: 0.10.8 # check releases for the latest version
+```
 
+**Install:**
 
-*Install:*
-
-bash
+```bash
 dbt deps
-
+```
 
 ## Sources
 
-*models/source.yml*
+**models/source.yml**
 
-yaml
+```yaml
 version: 2
 
 sources:
@@ -157,21 +157,21 @@ sources:
         freshness:
           warn_after: {count: 1, period: hour}
           error_after: {count: 24, period: hour}
+```
 
+**Run freshness checks:**
 
-*Run freshness checks:*
-
-bash
+```bash
 dbt source freshness
-
+```
 
 ## Staging (src) Models
 
 These standardize column names and types, and act as a clean interface to the raw sources.
 
-*models/src/src_listings.sql*
+**models/src/src_listings.sql**
 
-sql
+```sql
 with  raw_listings as (
     select * from AIRBNB.RAW.RAW_LISTINGS
 )
@@ -187,11 +187,11 @@ select
           created_at,
           updated_at
 from raw_listings
+```
 
+**models/src/src_reviews.sql**
 
-*models/src/src_reviews.sql*
-
-sql
+```sql
 with raw_reviews as ( select * from AIRBNB.RAW.RAW_REVIEWS)
 select listing_id,
        date as review_date ,
@@ -199,11 +199,11 @@ select listing_id,
        comments as review_text ,
        sentiment as review_sentiment
 from raw_reviews
+```
 
+**models/src/src_hosts.sql**
 
-*models/src/src_hosts.sql*
-
-sql
+```sql
 with raw_hosts as (
 select * from AIRBNB.RAW.RAW_HOSTS
 )
@@ -214,13 +214,13 @@ select id as host_id ,
        created_at,
        updated_at
 from raw_hosts
-
+```
 
 ## Dimension Models
 
-*models/dim/dim_listings_cleansed.sql*
+**models/dim/dim_listings_cleansed.sql**
 
-sql
+```sql
 {{ config(materialized='view') }}
 
 with src_listings as (
@@ -237,11 +237,11 @@ select
   created_at,
   updated_at
 from src_listings
+```
 
+**models/dim/dim_hosts_cleansed.sql**
 
-*models/dim/dim_hosts_cleansed.sql*
-
-sql
+```sql
 {{ config(materialized='view') }}
 
 with src_hosts as (
@@ -255,11 +255,11 @@ select
   created_at,
   updated_at
 from src_hosts
+```
 
+**models/dim/dim_listings_w_hosts.sql**
 
-*models/dim/dim_listings_w_hosts.sql*
-
-sql
+```sql
 with l as (
   select * from {{ ref('dim_listings_cleansed') }}
 ),
@@ -279,15 +279,15 @@ select
   greatest(l.updated_at, h.updated_at) as updated_at
 from l
 left join h on h.host_id = l.host_id
-
+```
 
 Defaults (from dbt_project.yml) set dim/ as table, but we override two dims to view for agility and cost.
 
 ## Fact Models
 
-*models/fct/fct_reviews.sql* — incremental model with variables and logging:
+**models/fct/fct_reviews.sql** — incremental model with variables and logging:
 
-sql
+```sql
 {{
   config(
     materialized = 'incremental',
@@ -313,35 +313,35 @@ WHERE review_text is not null
     {{ log('Loading ' ~ this ~ ' incrementally (all missing dates)', info=True)}}
   {% endif %}
 {% endif %}
+```
 
+**Key Features:**
 
-*Key Features:*
+- **Flexible incremental loading:** Use variables for custom date ranges or default to latest data
+- **Logging:** Informative log messages show which incremental strategy is being used
+- **Surrogate key:** `generate_surrogate_key` provides a stable, unique identifier
+- **Null filtering:** Excludes reviews without text content
 
-- *Flexible incremental loading:* Use variables for custom date ranges or default to latest data
-- *Logging:* Informative log messages show which incremental strategy is being used
-- *Surrogate key:* generate_surrogate_key provides a stable, unique identifier
-- *Null filtering:* Excludes reviews without text content
+**Variable Usage:**
 
-*Variable Usage:*
-
-- start_date & end_date: Load specific date range (format: 'YYYY-MM-DD')
+- `start_date` & `end_date`: Load specific date range (format: 'YYYY-MM-DD')
 - If variables not provided, defaults to loading all data newer than existing max date
 
 ## Seeds & Marts
 
 We enrich reviews with a calendar of full moon dates.
 
-*Seed:* seeds/seed_full_moon_dates.csv (headers must include full_moon_date)
+**Seed:** `seeds/seed_full_moon_dates.csv` (headers must include full_moon_date)
 
-*Load seeds:*
+**Load seeds:**
 
-bash
+```bash
 dbt seed
+```
 
+**Mart:** `models/mart/full_moon_reviews.sql`
 
-*Mart:* models/mart/full_moon_reviews.sql
-
-sql
+```sql
 {{ config(materialized='table') }}
 
 with fct_reviews as (
@@ -356,18 +356,18 @@ select
 from fct_reviews r
 left join full_moon_dates fm
   on (to_date(r.review_date) = dateadd(day, 1, fm.full_moon_date))
+```
 
-
-*Why DATEADD(day, 1, fm.full_moon_date)?*
+**Why DATEADD(day, 1, fm.full_moon_date)?**
 In this dataset we assume review activity peaks the day after a full moon. The join flags any review occurring on full moon + 1 day.
 
 ## Snapshots (SCD Type 2 on Listings_cleansed)
 
 We track source-of-truth changes to listings using a dbt snapshot. It preserves history with dbt_valid_from / dbt_valid_to.
 
-*snapshots/scd_raw_listings.sql*
+**snapshots/scd_raw_listings.sql**
 
-sql
+```sql
 {% snapshot scd_raw_listings %}
 
 {{
@@ -383,13 +383,13 @@ sql
 select * FROM {{ ref('dim_listings_cleansed') }}
 
 {% endsnapshot %}
+```
 
+**Run snapshots:**
 
-*Run snapshots:*
-
-bash
+```bash
 dbt snapshot
-
+```
 
 This snapshot captures changes in the DIM table. 
 ## Testing Strategy
@@ -398,11 +398,11 @@ We use three layers: built-in dbt tests, a custom generic test, and dbt-expectat
 
 ### 1) Built-in Generic Tests (models/schema.yml)
 
-- unique, not_null on keys and required columns
-- relationships for FK → PK integrity
-- accepted_values for categorical columns
+- `unique`, `not_null` on keys and required columns
+- `relationships` for FK → PK integrity
+- `accepted_values` for categorical columns
 
-yaml
+```yaml
 version: 2
 
 models:
@@ -474,18 +474,18 @@ models:
         tests:
           - accepted_values:
               values: ['positive', 'neutral', 'negative']
-
+```
 
 ### 2) Custom Generic Test (macros/positive_value.sql)
 
-sql
+```sql
 /* creating a custom generic test */
 {% test positive_value(model, column_name) %}
 select *
 from {{ model }}
 where {{ column_name }} < 1
 {% endtest %}
-
+```
 
 ### 3) dbt-expectations Tests
 
@@ -494,37 +494,37 @@ where {{ column_name }} < 1
 
 ### 4) Singular Tests (tests/)
 
-*tests/dim_listings_minimum_nights.sql*
+**tests/dim_listings_minimum_nights.sql**
 
-sql
+```sql
 select *
 from {{ ref('dim_listings_cleansed') }}
 where minimum_nights < 1
 limit 10
+```
 
+**tests/consistent_created_at.sql**
 
-*tests/consistent_created_at.sql*
-
-sql
+```sql
 /* Ensure every review_date in fct_reviews is later than listing created_at */
 select *
 from {{ ref('dim_listings_cleansed') }} l
 inner join {{ ref('fct_reviews') }} r
 using (listing_id)
 where l.created_at >= r.review_date
+```
 
+**Run all tests:**
 
-*Run all tests:*
-
-bash
+```bash
 dbt test
-
+```
 
 ## Project Documentation (dbt docs)
 
-*models/overview.md* (rendered in dbt Docs)
+**models/overview.md** (rendered in dbt Docs)
 
-markdown
+```markdown
 {% docs __overview__ %}
 # Airbnb pipeline
 
@@ -534,20 +534,20 @@ Here is the schema of our input data:
 ![input schema](https://dbtlearn.s3.us-east-2.amazonaws.com/input_schema.png)
 
 {% enddocs %}
+```
 
+**Generate & serve docs:**
 
-*Generate & serve docs:*
-
-bash
+```bash
 dbt docs generate
 dbt docs serve
-
+```
 
 If your browser asks for credentials on localhost:8080, another service is using that port. Launch on a different port:
 
-bash
+```bash
 dbt docs serve --port 8081
-
+```
 
 ## Variables & Configuration
 
@@ -557,25 +557,25 @@ The project supports several configuration options and variables for flexible ex
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| start_date | Start date for incremental fact loading | None | '2024-01-01' |
-| end_date | End date for incremental fact loading | None | '2024-12-31' |
+| `start_date` | Start date for incremental fact loading | None | `'2024-01-01'` |
+| `end_date` | End date for incremental fact loading | None | `'2024-12-31'` |
 
-*Usage examples:*
+**Usage examples:**
 
-bash
+```bash
 # Load reviews for specific date range
 dbt run --models fct_reviews --vars '{"start_date": "2024-01-01", "end_date": "2024-01-31"}'
 
 # Load all new reviews (default behavior)
 dbt run --models fct_reviews
-
+```
 
 ### Model Configurations
 
-- *Staging models:* Views for fast development and testing
-- *Dimension models:* Mix of views (cleansed) and tables (joined) based on usage
-- *Fact models:* Incremental for efficient large-scale loading
-- *Marts:* Tables for optimized business user queries
+- **Staging models:** Views for fast development and testing
+- **Dimension models:** Mix of views (cleansed) and tables (joined) based on usage
+- **Fact models:** Incremental for efficient large-scale loading
+- **Marts:** Tables for optimized business user queries
 
 
 
@@ -583,7 +583,7 @@ dbt run --models fct_reviews
 
 ### Initial Setup
 
-bash
+```bash
 # 0) Install dependencies
 dbt deps
 
@@ -602,11 +602,11 @@ dbt test
 # 5) Generate documentation
 dbt docs generate
 dbt docs serve --port 8081
-
+```
 
 ### Development Workflow
 
-bash
+```bash
 # Build and test everything
 dbt build
 
@@ -615,6 +615,6 @@ dbt test --models dim_listings_cleansed
 
 # Run specific model families
 dbt run --models +fct_reviews+  # upstream and downstream of fct_reviews
-dbt run --models src_*          # all staging models
+dbt run --models src_*          # all staging models
 
-
+```
